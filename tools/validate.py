@@ -7,21 +7,31 @@ import json
 from pathlib import Path
 
 try:
-    from .generate import InvalidSource, json_bytes, manifest_for, validate_resources
+    from .generate import MAX_RESOURCE_BYTES, InvalidSource, json_bytes, manifest_for, validate_resources
 except ImportError:
-    from generate import InvalidSource, json_bytes, manifest_for, validate_resources
+    from generate import MAX_RESOURCE_BYTES, InvalidSource, json_bytes, manifest_for, validate_resources
 
 
 def validate_bundle(directory: Path, repository: str) -> None:
+    if (directory / "resources.json").stat().st_size > MAX_RESOURCE_BYTES:
+        raise InvalidSource("resources.json exceeds the 32 MiB download limit")
     data = (directory / "resources.json").read_bytes()
     resources = json.loads(data)
     validate_resources(resources)
     if json_bytes(resources) != data:
         raise InvalidSource("resources.json is not in canonical format")
     manifest = json.loads((directory / "manifest.json").read_bytes())
-    if manifest != manifest_for(data, resources["sourceCommit"], repository):
+    expected = manifest_for(data, resources["sourceCommit"], repository,
+                            tile_source_commit=resources.get("tileSourceCommit"))
+    legacy = None
+    if "tileMaps" not in resources:
+        legacy = {**expected, "resourceVersion": resources["sourceCommit"],
+                  "resourcesUrl": f"https://github.com/{repository}/releases/download/maa-{resources['sourceCommit']}/resources.json"}
+    if (not isinstance(manifest, dict) or type(manifest.get("schemaVersion")) is not int or
+            manifest != expected and (legacy is None or manifest != legacy)):
         raise InvalidSource("manifest schema, SHA-256, commit or immutable URL mismatch")
-    print(f"Validated {len(resources['cards'])} cards, {len(resources['stages'])} stages, source {resources['sourceCommit']}")
+    print(f"Validated {len(resources['cards'])} cards, {len(resources['stages'])} stages, "
+          f"{len(resources.get('tileMaps', []))} tile maps, source {resources['sourceCommit']}")
 
 
 def main() -> None:

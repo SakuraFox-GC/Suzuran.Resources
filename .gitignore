@@ -1,5 +1,6 @@
 .source/
 upstream/
+upstream-tiles/
 dist/
 __pycache__/
 *.py[cod]
